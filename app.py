@@ -34,6 +34,12 @@ def load_data():
 try:
     gdf = load_data()
     
+    # 🌟 ここを追加：座標系（CRS）が抜けている場合に補正する処理
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+    else:
+        gdf = gdf.to_crs("EPSG:4326")
+
     # 都道府県名と市区町村名のカラムを自動検出
     pref_col = next((col for col in ["N03_001", "pref", "PREF"] if col in gdf.columns), gdf.columns[0])
     city_col = next((col for col in ["N03_004", "city", "CITY", "N03_003"] if col in gdf.columns), gdf.columns[1])
