@@ -7,9 +7,7 @@ import os
 
 st.set_page_config(page_title="市区町村ルーレット", layout="centered")
 
-st.set_page_config(page_title="市区町村ルーレット", layout="centered")
-
-# ─── Streamlitのロゴやメニューを非表示にして通常のWebサイト風にするCSS ───
+# スタイリッシュな見た目にするため、Streamlitの標準メニューやヘッダーを非表示に設定
 hide_style = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -22,11 +20,11 @@ st.markdown(hide_style, unsafe_allow_html=True)
 st.title("市区町村ルーレット")
 st.markdown("ランダムに選ばれる全国の市区町村を当てていくゲームです。")
 
-# 24MBに軽量化したTopoJSONファイル名
 JSON_PATH = "np.json"
 
+# ─── 重いデータ処理を完全にキャッシュ化し、起動時の一回だけ実行する ───
 @st.cache_resource
-def load_data():
+def load_and_process_data():
     if not os.path.exists(JSON_PATH):
         files = [f for f in os.listdir('.') if f.endswith('.json') or f.endswith('.topojson')]
         if files:
@@ -37,33 +35,31 @@ def load_data():
         file_to_read = JSON_PATH
         
     try:
-        gdf = gpd.read_file(file_to_read)
+        raw_gdf = gpd.read_file(file_to_read)
     except Exception:
-        gdf = gpd.read_file(file_to_read, layer=0)
+        raw_gdf = gpd.read_file(file_to_read, layer=0)
         
-    return gdf
-
-try:
-    raw_gdf = load_data()
-    
     if raw_gdf.crs is None:
         raw_gdf = raw_gdf.set_crs("EPSG:4326")
     else:
         raw_gdf = raw_gdf.to_crs("EPSG:4326")
 
-    # 都道府県名と市区町村名のカラムを自動検出
     pref_col = next((col for col in ["N03_001", "pref", "PREF"] if col in raw_gdf.columns), raw_gdf.columns[0])
     city_col = next((col for col in ["N03_004", "city", "CITY", "N03_003"] if col in raw_gdf.columns), raw_gdf.columns[1])
     
-    # 欠損値を除外
     raw_gdf = raw_gdf[raw_gdf[city_col].notnull() & (raw_gdf[city_col] != "")]
     
-    # 壊れた形状を修復してから合体処理
+    # 形状の修復、合体、軽量化をキャッシュ内で1回だけ行う
     raw_gdf["geometry"] = raw_gdf["geometry"].buffer(0)
-    
     gdf = raw_gdf.dissolve(by=[pref_col, city_col], as_index=False)
-    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.003, preserve_topology=True)
+    
+    # 描画速度をさらに上げるためtoleranceを少し調整
+    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.004, preserve_topology=True)
+    
+    return gdf, pref_col, city_col
 
+try:
+    gdf, pref_col, city_col = load_and_process_data()
 except Exception as e:
     st.error(f"データの読み込みに失敗しました。エラー: {e}")
     st.stop()
@@ -82,14 +78,14 @@ if len(filtered_gdf) == 0:
     st.warning("選択された条件に該当するデータがありません。")
     st.stop()
 
-# セッション状態の初期化（フィルター変更時もリセット）
+# セッション状態の初期化
 if "last_pref" not in st.session_state or st.session_state.last_pref != selected_pref:
     st.session_state.last_pref = selected_pref
     st.session_state.remaining_indices = list(filtered_gdf.index)
     random.shuffle(st.session_state.remaining_indices)
     st.session_state.current_idx = None
     st.session_state.answered_history = {}
-    st.session_state.status = "guessing" # "guessing", "correct", "revealed"
+    st.session_state.status = "guessing"
     st.session_state.last_target_name = ""
 
 if "remaining_indices" not in st.session_state or not st.session_state.remaining_indices:
