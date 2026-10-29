@@ -7,22 +7,29 @@ import os
 
 st.set_page_config(page_title="市区町村ルーレット", layout="centered")
 
-# スタイリッシュな見た目にするため、Streamlitの標準メニューやヘッダーを非表示に設定
+# ─── デザイン調整用CSS（タイトルを小さく、余白を詰めて地図と回答欄をメインにする） ───
 hide_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        max-width: 750px;
+    }
+    h1 {
+        font-size: 1.5rem !important;
+        margin-bottom: 0rem !important;
+    }
     </style>
 """
 st.markdown(hide_style, unsafe_allow_html=True)
 
 st.title("市区町村ルーレット")
-st.markdown("ランダムに選ばれる全国の市区町村を当てていくゲームです。")
 
 JSON_PATH = "np.json"
 
-# ─── 重いデータ処理を完全にキャッシュ化し、起動時の一回だけ実行する ───
 @st.cache_resource
 def load_and_process_data():
     if not os.path.exists(JSON_PATH):
@@ -49,11 +56,8 @@ def load_and_process_data():
     
     raw_gdf = raw_gdf[raw_gdf[city_col].notnull() & (raw_gdf[city_col] != "")]
     
-    # 形状の修復、合体、軽量化をキャッシュ内で1回だけ行う
     raw_gdf["geometry"] = raw_gdf["geometry"].buffer(0)
     gdf = raw_gdf.dissolve(by=[pref_col, city_col], as_index=False)
-    
-    # 描画速度をさらに上げるためtoleranceを少し調整
     gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.004, preserve_topology=True)
     
     return gdf, pref_col, city_col
@@ -66,9 +70,8 @@ except Exception as e:
 
 # ─── 都道府県別の選択フィルター ───
 prefectures = ["全国"] + sorted(list(gdf[pref_col].unique()))
-selected_pref = st.selectbox("出題範囲の選択", prefectures)
+selected_pref = st.selectbox("出題範囲の選択", prefectures, label_visibility="collapsed")
 
-# フィルター適用
 if selected_pref == "全国":
     filtered_gdf = gdf
 else:
@@ -78,7 +81,6 @@ if len(filtered_gdf) == 0:
     st.warning("選択された条件に該当するデータがありません。")
     st.stop()
 
-# セッション状態の初期化
 if "last_pref" not in st.session_state or st.session_state.last_pref != selected_pref:
     st.session_state.last_pref = selected_pref
     st.session_state.remaining_indices = list(filtered_gdf.index)
@@ -126,7 +128,7 @@ elif st.session_state.status == "revealed":
 
 else:
     with st.form(key="guess_form", clear_on_submit=True):
-        user_input = st.text_input("自治体名を入力", placeholder="例: 〇〇市 / 〇〇町 / 〇〇村")
+        user_input = st.text_input("自治体名を入力", placeholder="例: 〇〇市 / 〇〇町 / 〇〇村", label_visibility="collapsed")
         col_sub1, col_sub2 = st.columns(2)
         with col_sub1:
             submit_guess = st.form_submit_button("回答する", use_container_width=True)
@@ -150,7 +152,7 @@ else:
         st.session_state.answered_history[target_city] = "revealed"
         st.rerun()
 
-# ─── 地図の描画 ───
+# ─── 地図の描画（サイズを大きくして主役に） ───
 centroid = current_row["geometry"].centroid
 m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10, tiles=None)
 
@@ -169,4 +171,5 @@ def get_style(feature):
 
 folium.GeoJson(filtered_gdf, style_function=get_style).add_to(m)
 
-st_folium(m, width=700, height=450, key="map", returned_objects=[])
+# 地図の高さを 450 → 560 に拡大し、より大きく見やすくしました
+st_folium(m, width=700, height=560, key="map", returned_objects=[])
