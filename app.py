@@ -5,10 +5,10 @@ from streamlit_folium import st_folium
 import random
 import os
 
-st.set_page_config(page_title="全国 市町村ルーレット", layout="centered")
+st.set_page_config(page_title="市区町村ルーレット", layout="centered")
 
-st.title("🎲 全国 市町村ルーレット")
-st.write("ランダムに選ばれた全国の市区町村を当てよう！")
+st.title("市区町村ルーレット")
+st.markdown("ランダムに選ばれる全国の市区町村を当てていくゲームです。")
 
 # 24MBに軽量化したTopoJSONファイル名
 JSON_PATH = "np.json"
@@ -46,10 +46,9 @@ try:
     # 欠損値を除外
     raw_gdf = raw_gdf[raw_gdf[city_col].notnull() & (raw_gdf[city_col] != "")]
     
-    # 🌟 壊れた形状（自己交差など）を修復してから合体処理を行う
+    # 壊れた形状を修復してから合体処理
     raw_gdf["geometry"] = raw_gdf["geometry"].buffer(0)
     
-    # 同じ市区町村のポリゴンを一つにまとめて約1700自治体に正確化 ＆ 軽量化
     gdf = raw_gdf.dissolve(by=[pref_col, city_col], as_index=False)
     gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.003, preserve_topology=True)
 
@@ -57,55 +56,82 @@ except Exception as e:
     st.error(f"データの読み込みに失敗しました。エラー: {e}")
     st.stop()
 
-# セッション状態の初期化
-if "remaining_indices" not in st.session_state:
-    st.session_state.remaining_indices = list(gdf.index)
+# ─── 都道府県別の選択フィルター ───
+prefectures = ["全国"] + sorted(list(gdf[pref_col].unique()))
+selected_pref = st.selectbox("出題範囲の選択", prefectures)
+
+# フィルター適用
+if selected_pref == "全国":
+    filtered_gdf = gdf
+else:
+    filtered_gdf = gdf[gdf[pref_col] == selected_pref].reset_index(drop=True)
+
+if len(filtered_gdf) == 0:
+    st.warning("選択された条件に該当するデータがありません。")
+    st.stop()
+
+# セッション状態の初期化（フィルター変更時もリセット）
+if "last_pref" not in st.session_state or st.session_state.last_pref != selected_pref:
+    st.session_state.last_pref = selected_pref
+    st.session_state.remaining_indices = list(filtered_gdf.index)
     random.shuffle(st.session_state.remaining_indices)
     st.session_state.current_idx = None
-    st.session_state.answered_history = {} # 答えた履歴 {city_name: "correct" or "revealed"}
+    st.session_state.answered_history = {}
+    st.session_state.revealed_status = False
 
-def spin():
-    if not st.session_state.remaining_indices:
-        st.session_state.remaining_indices = list(gdf.index)
-        random.shuffle(st.session_state.remaining_indices)
+if "remaining_indices" not in st.session_state or not st.session_state.remaining_indices:
+    st.session_state.remaining_indices = list(filtered_gdf.index)
+    random.shuffle(st.session_state.remaining_indices)
+
+if st.session_state.current_idx is None or st.session_state.current_idx not in filtered_gdf.index:
     st.session_state.current_idx = st.session_state.remaining_indices.pop()
+    st.session_state.revealed_status = False
 
-if st.session_state.current_idx is None:
-    spin()
-
-current_row = gdf.loc[st.session_state.current_idx]
+current_row = filtered_gdf.loc[st.session_state.current_idx]
 target_pref = str(current_row.get(pref_col, ""))
 target_city = str(current_row.get(city_col, ""))
 
-# ─── 回答・操作セクション ───
-st.caption(f"残り自治体数: {len(st.session_state.remaining_indices)} / {len(gdf)}")
-
-# ユーザーの文字入力欄
-with st.form(key="guess_form", clear_on_submit=True):
-    user_input = st.text_input("自治体名を入力（例: 〇〇市 / 〇〇町 / 〇〇村）", placeholder="市区町村名を入力してEnter")
-    col_sub1, col_sub2 = st.columns(2)
-    with col_sub1:
-        submit_guess = st.form_submit_button("🎯 回答する", use_container_width=True)
-    with col_sub2:
-        give_up = st.form_submit_button("👀 答えを見る", use_container_width=True)
-
-# 判定処理
-if submit_guess and user_input:
-    if target_city in user_input or user_input in target_city:
-        st.success(f"🎉 正解！ 【 {target_pref} {target_city} 】")
-        st.session_state.answered_history[target_city] = "correct"
-        spin()
-        st.rerun()
+def next_question():
+    if st.session_state.remaining_indices:
+        st.session_state.current_idx = st.session_state.remaining_indices.pop()
     else:
-        st.error(f"❌ 惜しい！ 「{user_input}」ではありません。もう一度トライ！")
+        st.session_state.remaining_indices = list(filtered_gdf.index)
+        random.shuffle(st.session_state.remaining_indices)
+        st.session_state.current_idx = st.session_state.remaining_indices.pop()
+    st.session_state.revealed_status = False
 
-if give_up:
-    st.warning(f"💡 正解は 【 {target_pref} {target_city} 】 でした。")
-    st.session_state.answered_history[target_city] = "revealed"
-    spin()
-    st.rerun()
+st.caption(f"残り自治体数: {len(st.session_state.remaining_indices) + 1} / {len(filtered_gdf)}")
 
-# ─── 地図の描画（回答済み区域に色を保持） ───
+# ─── 回答・操作セクション ───
+if st.session_state.revealed_status:
+    st.info(f"正解: {target_pref} {target_city}")
+    if st.button("次の問題へ進む", use_container_width=True, type="primary"):
+        next_question()
+        st.rerun()
+else:
+    with st.form(key="guess_form", clear_on_submit=True):
+        user_input = st.text_input("自治体名を入力", placeholder="例: 〇〇市 / 〇〇町 / 〇〇村")
+        col_sub1, col_sub2 = st.columns(2)
+        with col_sub1:
+            submit_guess = st.form_submit_button("回答する", use_container_width=True)
+        with col_sub2:
+            give_up = st.form_submit_button("答えを見る", use_container_width=True)
+
+    if submit_guess and user_input:
+        if target_city in user_input or user_input in target_city:
+            st.success(f"正解: {target_pref} {target_city}")
+            st.session_state.answered_history[target_city] = "correct"
+            next_question()
+            st.rerun()
+        else:
+            st.error(f"間違い: 「{user_input}」ではありません。")
+
+    if give_up:
+        st.session_state.revealed_status = True
+        st.session_state.answered_history[target_city] = "revealed"
+        st.rerun()
+
+# ─── 地図の描画 ───
 centroid = current_row["geometry"].centroid
 m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10, tiles="CartoDB positron")
 
@@ -122,6 +148,6 @@ def get_style(feature):
     else:
         return {"fillColor": "#ecf0f1", "color": "#bdc3c7", "weight": 0.5, "fillOpacity": 0.3}
 
-folium.GeoJson(gdf, style_function=get_style).add_to(m)
+folium.GeoJson(filtered_gdf, style_function=get_style).add_to(m)
 
 st_folium(m, width=700, height=450, key="map")
