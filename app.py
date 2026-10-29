@@ -7,6 +7,18 @@ import os
 
 st.set_page_config(page_title="市区町村ルーレット", layout="centered")
 
+st.set_page_config(page_title="市区町村ルーレット", layout="centered")
+
+# ─── Streamlitのロゴやメニューを非表示にして通常のWebサイト風にするCSS ───
+hide_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_style, unsafe_allow_html=True)
+
 st.title("市区町村ルーレット")
 st.markdown("ランダムに選ばれる全国の市区町村を当てていくゲームです。")
 
