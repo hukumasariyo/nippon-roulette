@@ -152,7 +152,7 @@ else:
 
 # ─── 地図の描画 ───
 centroid = current_row["geometry"].centroid
-m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10, tiles="CartoDB positron")
+m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10, tiles=None)
 
 def get_style(feature):
     props = feature.get("properties", {})
