@@ -77,7 +77,8 @@ if "last_pref" not in st.session_state or st.session_state.last_pref != selected
     random.shuffle(st.session_state.remaining_indices)
     st.session_state.current_idx = None
     st.session_state.answered_history = {}
-    st.session_state.revealed_status = False
+    st.session_state.status = "guessing" # "guessing", "correct", "revealed"
+    st.session_state.last_target_name = ""
 
 if "remaining_indices" not in st.session_state or not st.session_state.remaining_indices:
     st.session_state.remaining_indices = list(filtered_gdf.index)
@@ -85,7 +86,7 @@ if "remaining_indices" not in st.session_state or not st.session_state.remaining
 
 if st.session_state.current_idx is None or st.session_state.current_idx not in filtered_gdf.index:
     st.session_state.current_idx = st.session_state.remaining_indices.pop()
-    st.session_state.revealed_status = False
+    st.session_state.status = "guessing"
 
 current_row = filtered_gdf.loc[st.session_state.current_idx]
 target_pref = str(current_row.get(pref_col, ""))
@@ -98,16 +99,23 @@ def next_question():
         st.session_state.remaining_indices = list(filtered_gdf.index)
         random.shuffle(st.session_state.remaining_indices)
         st.session_state.current_idx = st.session_state.remaining_indices.pop()
-    st.session_state.revealed_status = False
+    st.session_state.status = "guessing"
 
 st.caption(f"残り自治体数: {len(st.session_state.remaining_indices) + 1} / {len(filtered_gdf)}")
 
 # ─── 回答・操作セクション ───
-if st.session_state.revealed_status:
-    st.info(f"正解: {target_pref} {target_city}")
+if st.session_state.status == "correct":
+    st.success(f"正解: {st.session_state.last_pref_name} {st.session_state.last_target_name}")
     if st.button("次の問題へ進む", use_container_width=True, type="primary"):
         next_question()
         st.rerun()
+
+elif st.session_state.status == "revealed":
+    st.info(f"正解: {st.session_state.last_pref_name} {st.session_state.last_target_name}")
+    if st.button("次の問題へ進む", use_container_width=True, type="primary"):
+        next_question()
+        st.rerun()
+
 else:
     with st.form(key="guess_form", clear_on_submit=True):
         user_input = st.text_input("自治体名を入力", placeholder="例: 〇〇市 / 〇〇町 / 〇〇村")
@@ -119,15 +127,18 @@ else:
 
     if submit_guess and user_input:
         if target_city in user_input or user_input in target_city:
-            st.success(f"正解: {target_pref} {target_city}")
+            st.session_state.status = "correct"
+            st.session_state.last_pref_name = target_pref
+            st.session_state.last_target_name = target_city
             st.session_state.answered_history[target_city] = "correct"
-            next_question()
             st.rerun()
         else:
             st.error(f"間違い: 「{user_input}」ではありません。")
 
     if give_up:
-        st.session_state.revealed_status = True
+        st.session_state.status = "revealed"
+        st.session_state.last_pref_name = target_pref
+        st.session_state.last_target_name = target_city
         st.session_state.answered_history[target_city] = "revealed"
         st.rerun()
 
@@ -139,7 +150,7 @@ def get_style(feature):
     props = feature.get("properties", {})
     c_name = props.get(city_col)
     
-    if c_name == target_city:
+    if c_name == target_city and st.session_state.status == "guessing":
         return {"fillColor": "#3498db", "color": "#2980b9", "weight": 2, "fillOpacity": 0.8}
     elif c_name in st.session_state.answered_history:
         status = st.session_state.answered_history[c_name]
