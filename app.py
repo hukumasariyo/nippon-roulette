@@ -169,4 +169,4 @@ def get_style(feature):
 
 folium.GeoJson(filtered_gdf, style_function=get_style).add_to(m)
 
-st_folium(m, width=700, height=450, key="map")
+st_folium(m, width=700, height=450, key="map", returned_objects=[])
