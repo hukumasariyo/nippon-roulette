@@ -46,7 +46,10 @@ try:
     # 欠損値を除外
     raw_gdf = raw_gdf[raw_gdf[city_col].notnull() & (raw_gdf[city_col] != "")]
     
-    # 🌟 同じ市区町村のポリゴンを一つにまとめて約1700自治体に正確化 ＆ 軽量化
+    # 🌟 壊れた形状（自己交差など）を修復してから合体処理を行う
+    raw_gdf["geometry"] = raw_gdf["geometry"].buffer(0)
+    
+    # 同じ市区町村のポリゴンを一つにまとめて約1700自治体に正確化 ＆ 軽量化
     gdf = raw_gdf.dissolve(by=[pref_col, city_col], as_index=False)
     gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.003, preserve_topology=True)
 
@@ -88,7 +91,6 @@ with st.form(key="guess_form", clear_on_submit=True):
 
 # 判定処理
 if submit_guess and user_input:
-    # 入力された文字にターゲット名が含まれているか判定
     if target_city in user_input or user_input in target_city:
         st.success(f"🎉 正解！ 【 {target_pref} {target_city} 】")
         st.session_state.answered_history[target_city] = "correct"
@@ -112,15 +114,12 @@ def get_style(feature):
     c_name = props.get(city_col)
     
     if c_name == target_city:
-        # 現在のターゲット
         return {"fillColor": "#3498db", "color": "#2980b9", "weight": 2, "fillOpacity": 0.8}
     elif c_name in st.session_state.answered_history:
-        # 過去に答えた区域（正解は緑、ギブアップはオレンジ）
         status = st.session_state.answered_history[c_name]
         color = "#2ecc71" if status == "correct" else "#e67e22"
         return {"fillColor": color, "color": "#d35400", "weight": 1, "fillOpacity": 0.7}
     else:
-        # 未訪問
         return {"fillColor": "#ecf0f1", "color": "#bdc3c7", "weight": 0.5, "fillOpacity": 0.3}
 
 folium.GeoJson(gdf, style_function=get_style).add_to(m)
